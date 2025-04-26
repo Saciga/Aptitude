@@ -1,16 +1,15 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+require('dotenv').config(); // <-- Important for loading .env variables
 
-// Initialize Express app
 const app = express();
 
-// Enhanced CORS configuration
+// Smart CORS Configuration: allow only your frontend URL
 const corsOptions = {
-  origin: 'http://localhost:3000',
+  origin: process.env.CLIENT_URL || 'http://localhost:3000', // Allow localhost during local development, frontend during production
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200,
   credentials: true
 };
 app.use(cors(corsOptions));
@@ -19,11 +18,11 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Database connection with enhanced options      mongodb://localhost:27017/aptitude-test
-mongoose.connect("mongodb://localhost:27017/aptitude-test", {
+// Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 5000
+  serverSelectionTimeoutMS: 5000,
 })
 .then(() => console.log("✅ MongoDB connected successfully"))
 .catch(err => {
@@ -55,7 +54,7 @@ const Response = mongoose.model("Response", new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 }));
 
-// Health check endpoint
+// Health Check
 app.get("/health", (req, res) => {
   res.status(200).json({
     status: "OK",
@@ -64,25 +63,22 @@ app.get("/health", (req, res) => {
   });
 });
 
-// API Endpoints with improved error handling
-
 // Get all topics
 app.get("/topics", async (req, res) => {
   try {
     const topics = await Topic.find().select('name -_id');
-    res.json(topics.map(t => t.name)); // Return just the names as strings
+    res.json(topics.map(t => t.name));
   } catch (err) {
     console.error("Error fetching topics:", err);
     res.status(500).json({ error: "Failed to fetch topics", details: err.message });
   }
 });
 
-// Get questions by topic (case-insensitive with proper error handling)
+// Get questions by topic
 app.get("/questions/:topic", async (req, res) => {
   try {
     const topicParam = decodeURIComponent(req.params.topic).trim();
     
-    // First check if topic exists
     const topicExists = await Topic.findOne({ 
       name: { $regex: new RegExp(`^${topicParam}$`, "i") }
     });
@@ -96,7 +92,7 @@ app.get("/questions/:topic", async (req, res) => {
 
     const questions = await Question.find({ 
       topic: { $regex: new RegExp(`^${topicExists.name}$`, "i") }
-    }).select('-__v'); // Exclude version key
+    }).select('-__v');
 
     if (!questions.length) {
       return res.status(404).json({ 
@@ -108,14 +104,11 @@ app.get("/questions/:topic", async (req, res) => {
     res.json(questions);
   } catch (err) {
     console.error("Error fetching questions:", err);
-    res.status(500).json({ 
-      error: "Failed to fetch questions",
-      details: err.message 
-    });
+    res.status(500).json({ error: "Failed to fetch questions", details: err.message });
   }
 });
 
-// Submit quiz answers with improved validation
+// Submit quiz answers
 app.post("/submit", async (req, res) => {
   try {
     const { user, topic, answers } = req.body;
@@ -135,24 +128,18 @@ app.post("/submit", async (req, res) => {
     let score = 0;
     const responseAnswers = questions.map(q => {
       const userAnswer = answers[q._id] || '';
-      
-      // Find the correct option key (A, B, C, D)
       const correctOptionIndex = q.options.findIndex(opt => opt === q.answer);
       const correctOptionKey = ['A', 'B', 'C', 'D'][correctOptionIndex];
-      
-      // Check if the user's selected answer matches the correct option key
       const isCorrect = userAnswer === correctOptionKey;
       if (isCorrect) score++;
       
       return {
         question: q.question,
         selected: userAnswer,
-        correct: isCorrect,
-        correctAnswer: q.answer
+        correct: isCorrect
       };
     });
 
-    // Save response to database
     const response = new Response({
       user,
       topic,
@@ -169,28 +156,18 @@ app.post("/submit", async (req, res) => {
     });
   } catch (err) {
     console.error("Error submitting quiz:", err);
-    res.status(500).json({ 
-      error: "Failed to submit quiz",
-      details: err.message 
-    });
+    res.status(500).json({ error: "Failed to submit quiz", details: err.message });
   }
 });
 
-// Error handling middleware
+// Global error handler
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err);
-  res.status(500).json({ 
-    error: "Internal server error",
-    message: err.message 
-  });
+  res.status(500).json({ error: "Internal server error", message: err.message });
 });
 
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/health`);
-  console.log(`🌐 CORS-enabled for: http://localhost:3000`);
 });
-
-
